@@ -16,7 +16,7 @@
  * ====================================================================
  */
 
-package org.dasein.cloud.jclouds.vcloud;
+package org.dasein.cloud.jclouds.vcloud.director;
 
 import static org.jclouds.concurrent.MoreExecutors.sameThreadExecutor;
 
@@ -24,12 +24,15 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Properties;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
 import org.apache.log4j.Logger;
 import org.dasein.cloud.AbstractCloud;
 import org.dasein.cloud.CloudException;
 import org.dasein.cloud.ProviderContext;
-import org.dasein.cloud.jclouds.vcloud.compute.VcloudComputeServices;
-import org.dasein.cloud.jclouds.vcloud.network.VcloudNetworkServices;
+import org.dasein.cloud.jclouds.vcloud.director.compute.VCloudDirectorComputeServices;
+import org.dasein.cloud.jclouds.vcloud.director.network.VCloudDirectorNetworkServices;
 import org.dasein.cloud.storage.BlobStoreSupport;
 import org.dasein.cloud.storage.StorageServices;
 import org.jclouds.Constants;
@@ -37,23 +40,23 @@ import org.jclouds.compute.ComputeServiceContextFactory;
 import org.jclouds.concurrent.config.ExecutorServiceModule;
 import org.jclouds.logging.log4j.config.Log4JLoggingModule;
 import org.jclouds.rest.RestContext;
-import org.jclouds.vcloud.VCloudAsyncClient;
-import org.jclouds.vcloud.VCloudClient;
-import org.jclouds.vcloud.domain.Org;
-import org.jclouds.vcloud.domain.Task;
-import org.jclouds.vcloud.domain.TaskStatus;
-import org.jclouds.vcloud.domain.VApp;
-import org.jclouds.vcloud.domain.Vm;
+import org.jclouds.vcloud.director.v1_5.VCloudDirectorAsyncClient;
+import org.jclouds.vcloud.director.v1_5.VCloudDirectorClient;
+import org.jclouds.vcloud.director.v1_5.domain.AdminOrg;
+import org.jclouds.vcloud.director.v1_5.domain.Reference;
+import org.jclouds.vcloud.director.v1_5.domain.Task;
+import org.jclouds.vcloud.director.v1_5.domain.VApp;
+import org.jclouds.vcloud.director.v1_5.domain.Vm;
+import org.jclouds.vcloud.director.v1_5.predicates.ReferencePredicates;
 
+import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
-
-public class VcloudDirector extends AbstractCloud {
-    static private final Logger logger = Logger.getLogger(VcloudDirector.class);
+public class VCloudDirector extends AbstractCloud {
+    static private final Logger logger = Logger.getLogger(VCloudDirector.class);
     
-    public VcloudDirector() { }
+    public VCloudDirector() { }
     
     @Override
     public @Nonnull String getCloudName() {
@@ -79,7 +82,7 @@ public class VcloudDirector extends AbstractCloud {
         return (name == null ? "VMware" : name);
     }
 
-    public @Nonnull RestContext<VCloudClient,VCloudAsyncClient> getCloudClient() throws CloudException {
+    public @Nonnull RestContext<VCloudDirectorClient,VCloudDirectorAsyncClient> getCloudClient() throws CloudException {
         ProviderContext ctx = getContext();
         
         if( ctx == null ) {
@@ -101,22 +104,23 @@ public class VcloudDirector extends AbstractCloud {
     }
     
     @Override
-    public @Nonnull VcloudComputeServices getComputeServices() {
-        return new VcloudComputeServices(this);
+    public @Nonnull VCloudDirectorComputeServices getComputeServices() {
+        return new VCloudDirectorComputeServices(this);
     }
     
     @Override
-    public @Nonnull VcloudVDC getDataCenterServices() {
-        return new VcloudVDC(this);
+    public @Nonnull VCloudDirectorDataCenterServices getDataCenterServices() {
+        return new VCloudDirectorDataCenterServices(this);
     }
     
-    public @Nonnull VcloudNetworkServices getNetworkServices() {
-        return new VcloudNetworkServices(this);
+    @Override
+   public @Nonnull VCloudDirectorNetworkServices getNetworkServices() {
+        return new VCloudDirectorNetworkServices(this);
     }
     
-    private transient volatile Org currentOrg;
+    private transient volatile AdminOrg currentOrg;
     
-    public @Nonnull Org getOrg() throws CloudException {
+    public @Nonnull AdminOrg getOrg() throws CloudException {
         ProviderContext ctx = getContext();
         
         if( ctx == null ) {
@@ -128,22 +132,25 @@ public class VcloudDirector extends AbstractCloud {
         return currentOrg;
     }
     
-    public @Nonnull Org getOrg(URI href) throws CloudException {
-        RestContext<VCloudClient, VCloudAsyncClient> ctx = getCloudClient();
+    public @Nonnull AdminOrg getOrg(URI href) throws CloudException {
+        RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx = getCloudClient();
         
         try {
-            return ctx.getApi().getOrgClient().getOrg(href);
+            return ctx.getApi().getAdminOrgClient().getOrg(href);
         }
         finally {
             ctx.close();
         }        
     }
     
-    public @Nonnull Org getOrg(String name) throws CloudException {
-        RestContext<VCloudClient, VCloudAsyncClient> ctx = getCloudClient();
+    public @Nonnull AdminOrg getOrg(String name) throws CloudException {
+        RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx = getCloudClient();
         
         try {
-            return ctx.getApi().getOrgClient().findOrgNamed(name);
+            Reference orgRef = Iterables.find(
+                 ctx.getApi().getOrgClient().getOrgList().getOrgs(),
+                 ReferencePredicates.nameEquals(name));
+            return getOrg(orgRef.getHref());
         }
         finally {
             ctx.close();
@@ -158,10 +165,10 @@ public class VcloudDirector extends AbstractCloud {
             if( providerContext == null ) {
                 return null;
             }
-            RestContext<VCloudClient, VCloudAsyncClient> ctx = getCloudClient();
+            RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx = getCloudClient();
 
             try {
-                ctx.getApi().getOrgClient().listOrgs();
+                ctx.getApi().getOrgClient().getOrgList();
             }
             finally {
                 ctx.close();
@@ -189,7 +196,7 @@ public class VcloudDirector extends AbstractCloud {
         }
     }
     
-    public @Nonnull URI toHref(RestContext<VCloudClient, VCloudAsyncClient> ctx, String id) {
+    public @Nonnull URI toHref(RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx, String id) {
         try {
             return new URI(ctx.getEndpoint() + "/v" + ctx.getApiVersion() + id);
         }
@@ -198,7 +205,7 @@ public class VcloudDirector extends AbstractCloud {
         }
     }
     
-    public @Nonnull String toId(@Nonnull RestContext<VCloudClient, VCloudAsyncClient> ctx, @Nonnull URI uri) {
+    public @Nonnull String toId(@Nonnull RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx, @Nonnull URI uri) {
         String endpoint = ctx.getEndpoint().toASCIIString();
         String str = uri.toASCIIString();
         int extra;
@@ -221,16 +228,22 @@ public class VcloudDirector extends AbstractCloud {
     }
 
     
-    public @Nullable Vm waitForIdle(@Nonnull RestContext<VCloudClient, VCloudAsyncClient> ctx, @Nullable Vm vm) {
+    public @Nullable Vm waitForIdle(@Nonnull RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx, @Nullable Vm vm) {
         if( vm == null ) {
             return null;
         }
         boolean busy = true;
-        
+        final URI vmUri = vm.getHref();
         while( busy ) {
             try { Thread.sleep(1500L); }
             catch( InterruptedException ignore ) { /* ignore */ }
-            vm = ctx.getApi().getVmClient().getVm(vm.getHref());
+            vm = Iterables.find(ctx.getApi().getVAppClient().getVApp(vm.getVAppParent().getHref()).getChildren().getVms(),
+	                  new Predicate<Vm>() {
+			               @Override
+			               public boolean apply(Vm input) {
+			                  return vmUri.equals(input.getHref());
+			               }
+			            });
             if( vm == null ) {
                 return null;
             }
@@ -240,7 +253,7 @@ public class VcloudDirector extends AbstractCloud {
                 if( task == null || task.getStatus() == null ) {
                     continue;
                 }
-                if( task.getStatus().equals(TaskStatus.QUEUED) || task.getStatus().equals(TaskStatus.RUNNING) ) {
+                if( task.getStatus().equals(Task.Status.QUEUED) || task.getStatus().equals(Task.Status.RUNNING) ) {
                     busy = true;
                 }
             }
@@ -248,7 +261,7 @@ public class VcloudDirector extends AbstractCloud {
         return vm;
     }
     
-    public @Nullable VApp waitForIdle(@Nonnull RestContext<VCloudClient, VCloudAsyncClient> ctx, @Nullable VApp vapp) {
+    public @Nullable VApp waitForIdle(@Nonnull RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx, @Nullable VApp vapp) {
         if( vapp == null ) {
             return null;
         }
@@ -267,7 +280,7 @@ public class VcloudDirector extends AbstractCloud {
                 if( task == null || task.getStatus() == null ) {
                     continue;
                 }
-                if( task.getStatus().equals(TaskStatus.QUEUED) || task.getStatus().equals(TaskStatus.RUNNING) ) {
+                if( task.getStatus().equals(Task.Status.QUEUED) || task.getStatus().equals(Task.Status.RUNNING) ) {
                     busy = true;
                 }
             }
@@ -276,10 +289,10 @@ public class VcloudDirector extends AbstractCloud {
     }
     
     public void waitForTask(@Nonnull Task task) throws CloudException {
-        while( task != null && (task.getStatus().equals(TaskStatus.RUNNING) || task.getStatus().equals(TaskStatus.QUEUED)) ) {
+        while( task != null && (task.getStatus().equals(Task.Status.RUNNING) || task.getStatus().equals(Task.Status.QUEUED)) ) {
             try { Thread.sleep(5000L); }
             catch( InterruptedException ignore ) { }
-            RestContext<VCloudClient, VCloudAsyncClient> ctx = getCloudClient();
+            RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx = getCloudClient();
             
             try {
                 try {
@@ -294,7 +307,7 @@ public class VcloudDirector extends AbstractCloud {
             }
         }
         if( task != null ) {
-            if( task.getStatus().equals(TaskStatus.ERROR) ) {
+            if( task.getStatus().equals(Task.Status.ERROR) ) {
                 throw new CloudException(task.getError().getMessage());
             }
         }        

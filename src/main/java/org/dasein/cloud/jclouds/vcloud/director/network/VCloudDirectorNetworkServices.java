@@ -16,25 +16,20 @@
  * ====================================================================
  */
 
-package org.dasein.cloud.jclouds.vcloud.compute;
-
-import org.dasein.cloud.compute.AbstractComputeServices;
-import org.dasein.cloud.jclouds.vcloud.VcloudDirector;
+package org.dasein.cloud.jclouds.vcloud.director.network;
 
 import javax.annotation.Nonnull;
 
-public class VcloudComputeServices extends AbstractComputeServices {
-    private VcloudDirector provider;
+import org.dasein.cloud.jclouds.vcloud.director.VCloudDirector;
+import org.dasein.cloud.network.AbstractNetworkServices;
+
+public class VCloudDirectorNetworkServices extends AbstractNetworkServices {
+    private VCloudDirector provider;
     
-    public VcloudComputeServices(@Nonnull VcloudDirector provider) { this.provider = provider; }
-        
-    @Override
-    public @Nonnull VappTemplateSupport getImageSupport() {
-        return new VappTemplateSupport(provider);
-    }
+    public VCloudDirectorNetworkServices(@Nonnull VCloudDirector provider) { this.provider = provider; }
     
     @Override
-    public @Nonnull VcloudVMSupport getVirtualMachineSupport() {
-        return new VcloudVMSupport(provider);
+    public @Nonnull VCloudNetworkSupport getVlanSupport() {
+        return new VCloudNetworkSupport(provider);
     }
 }

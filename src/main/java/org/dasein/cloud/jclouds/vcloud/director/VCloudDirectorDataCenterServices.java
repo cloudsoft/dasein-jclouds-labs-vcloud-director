@@ -16,7 +16,7 @@
  * ====================================================================
  */
 
-package org.dasein.cloud.jclouds.vcloud;
+package org.dasein.cloud.jclouds.vcloud.director;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -24,7 +24,10 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Locale;
-import java.util.Map;
+import java.util.Set;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.dasein.cloud.CloudException;
 import org.dasein.cloud.InternalException;
@@ -33,18 +36,15 @@ import org.dasein.cloud.dc.DataCenter;
 import org.dasein.cloud.dc.DataCenterServices;
 import org.dasein.cloud.dc.Region;
 import org.jclouds.rest.RestContext;
-import org.jclouds.vcloud.VCloudAsyncClient;
-import org.jclouds.vcloud.VCloudClient;
-import org.jclouds.vcloud.domain.ReferenceType;
-import org.jclouds.vcloud.domain.VDC;
+import org.jclouds.vcloud.director.v1_5.VCloudDirectorAsyncClient;
+import org.jclouds.vcloud.director.v1_5.VCloudDirectorClient;
+import org.jclouds.vcloud.director.v1_5.domain.Reference;
+import org.jclouds.vcloud.director.v1_5.domain.Vdc;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
-
-public class VcloudVDC implements DataCenterServices {
-    private VcloudDirector provider;
+public class VCloudDirectorDataCenterServices implements DataCenterServices {
+    private VCloudDirector provider;
     
-    VcloudVDC(@Nonnull VcloudDirector cloud) { provider = cloud; }
+    VCloudDirectorDataCenterServices(@Nonnull VCloudDirector cloud) { provider = cloud; }
 
     private @Nonnull ProviderContext getContext() throws CloudException {
         ProviderContext ctx = provider.getContext();
@@ -57,7 +57,7 @@ public class VcloudVDC implements DataCenterServices {
     
     @Override
     public @Nullable DataCenter getDataCenter(@Nonnull String providerDataCenterId) throws InternalException, CloudException {
-        RestContext<VCloudClient, VCloudAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx = provider.getCloudClient();
 
         try {
             return toDataCenter(ctx, getVDC(providerDataCenterId));
@@ -87,11 +87,11 @@ public class VcloudVDC implements DataCenterServices {
         return null;
     }
 
-    public @Nullable VDC getVDC(@Nonnull String vdcId) throws CloudException {
-        RestContext<VCloudClient, VCloudAsyncClient> ctx = provider.getCloudClient();
+    public @Nullable Vdc getVDC(@Nonnull String vdcId) throws CloudException {
+        RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx = provider.getCloudClient();
 
         try {
-            return ctx.getApi().getVDCClient().getVDC(provider.toHref(ctx, vdcId));
+            return ctx.getApi().getVdcClient().getVdc(provider.toHref(ctx, vdcId));
         }
         finally {
             ctx.close();
@@ -103,18 +103,19 @@ public class VcloudVDC implements DataCenterServices {
         if( !providerRegionId.equals(getContext().getRegionId()) ) {
             return Collections.emptyList();
         }
-        RestContext<VCloudClient, VCloudAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx = provider.getCloudClient();
 
         try {
-            Map<String,ReferenceType> map = provider.getOrg().getVDCs();
-            System.out.println("Data centers=" + map);
+            Set<Reference> refs = provider.getOrg().getVdcs();
+                  
+            System.out.println("Data centers=" + refs);
             ArrayList<DataCenter> dcs = new ArrayList<DataCenter>();
             
-            if( map == null ) {
+            if( refs == null ) {
                 return Collections.emptyList();
             }
-            for( ReferenceType type : map.values() ) {
-                VDC vdc = ctx.getApi().getVDCClient().getVDC(type.getHref());
+            for( Reference ref : refs ) {
+                Vdc vdc = ctx.getApi().getVdcClient().getVdc(ref.getHref());
                 DataCenter dc = toDataCenter(ctx, vdc);
                 
                 if( dc != null ) {
@@ -155,7 +156,7 @@ public class VcloudVDC implements DataCenterServices {
         return region;
     }
     
-    private @Nullable DataCenter toDataCenter(@Nonnull RestContext<VCloudClient, VCloudAsyncClient> ctx, @Nullable VDC vdc) throws CloudException {
+    private @Nullable DataCenter toDataCenter(@Nonnull RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx, @Nullable Vdc vdc) throws CloudException {
         if( vdc == null ) {
             return null;
         }
