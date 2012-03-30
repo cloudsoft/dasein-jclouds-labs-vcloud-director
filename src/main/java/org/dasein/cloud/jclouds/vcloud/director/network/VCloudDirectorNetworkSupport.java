@@ -24,7 +24,6 @@ import java.util.Locale;
 import java.util.Set;
 
 import javax.annotation.Nonnull;
-import javax.lang.model.type.ReferenceType;
 
 import org.apache.log4j.Logger;
 import org.dasein.cloud.CloudException;
@@ -38,15 +37,20 @@ import org.dasein.cloud.network.VLAN;
 import org.dasein.cloud.network.VLANSupport;
 import org.jclouds.rest.AuthorizationException;
 import org.jclouds.rest.RestContext;
-import org.jclouds.vcloud.director.v1_5.VCloudDirectorAsyncClient;
-import org.jclouds.vcloud.director.v1_5.VCloudDirectorClient;
 import org.jclouds.vcloud.director.v1_5.VCloudDirectorMediaType;
+import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminAsyncClient;
+import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminClient;
+import org.jclouds.vcloud.director.v1_5.domain.AdminOrg;
 import org.jclouds.vcloud.director.v1_5.domain.IpScope;
+import org.jclouds.vcloud.director.v1_5.domain.Network;
 import org.jclouds.vcloud.director.v1_5.domain.NetworkConnection;
-import org.jclouds.vcloud.director.v1_5.domain.Org;
+import org.jclouds.vcloud.director.v1_5.domain.NetworkConnectionSection;
 import org.jclouds.vcloud.director.v1_5.domain.OrgNetwork;
 import org.jclouds.vcloud.director.v1_5.domain.Reference;
 import org.jclouds.vcloud.director.v1_5.domain.Vm;
+
+import com.google.common.base.Predicates;
+import com.google.common.collect.Iterables;
 
 public class VCloudDirectorNetworkSupport implements VLANSupport {
     static private final Logger logger = Logger.getLogger(VCloudDirectorNetworkSupport.class);
@@ -91,7 +95,7 @@ public class VCloudDirectorNetworkSupport implements VLANSupport {
 
     @Override
     public Iterable<NetworkInterface> listNetworkInterfaces(String forVmId) throws CloudException, InternalException {
-        RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
         
         try {
             try {
@@ -104,7 +108,7 @@ public class VCloudDirectorNetworkSupport implements VLANSupport {
                 if( refs != null ) {
                     for( Reference t : refs ) {
                         if( t.getType().equals(VCloudDirectorMediaType.NETWORK) ) {
-                            OrgNetwork network = ctx.getApi().getNetworkClient().getNetwork(t.getHref());
+                            Network network = ctx.getApi().getNetworkClient().getNetwork(t.getHref());
                             
                             if( network != null ) {
                                 networks.add(network);
@@ -112,7 +116,8 @@ public class VCloudDirectorNetworkSupport implements VLANSupport {
                         }
                     }
                 }
-                for( NetworkConnection c : vm.getNetworkConnectionSection().getConnections() ) {
+                NetworkConnectionSection section = (NetworkConnectionSection) Iterables.find(vm.getSections(), Predicates.instanceOf(NetworkConnectionSection.class));
+                for( NetworkConnection c : section.getNetworkConnections() ) {
                     NetworkInterface nic = new NetworkInterface();
                     
                     nic.setProviderNetworkInterfaceId(c.getMACAddress());
@@ -155,12 +160,12 @@ public class VCloudDirectorNetworkSupport implements VLANSupport {
     
     @Override
     public Iterable<VLAN> listVlans() throws CloudException, InternalException {
-        RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
         
         try {
             try {
                 ArrayList<VLAN> list = new ArrayList<VLAN>();
-                Org org = provider.getOrg();
+                AdminOrg org = provider.getOrg();
                 Set<Reference> refs = org.getNetworks();
                 
                 if( refs == null ) {
@@ -168,7 +173,7 @@ public class VCloudDirectorNetworkSupport implements VLANSupport {
                 }
                 for( Reference type : refs ) {
                     if( type.getType().equals(VCloudDirectorMediaType.NETWORK) ) {
-                        OrgNetwork network = ctx.getApi().getNetworkClient().getNetwork(type.getHref());
+                        Network network = ctx.getApi().getNetworkClient().getNetwork(type.getHref());
                         
                         VLAN vlan = toVlan(ctx, network);
                         
@@ -247,11 +252,11 @@ public class VCloudDirectorNetworkSupport implements VLANSupport {
         return network.toString();
     }
     
-    private VLAN toVlan(RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx, OrgNetwork network) throws CloudException {
+    private VLAN toVlan(RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx, Network network) throws CloudException {
         if( network == null ) {
             return null;
         }
-        Org org = provider.getOrg(network.getOrg().getHref());
+        AdminOrg org = provider.getOrg(network.getOrg().getHref());
         VLAN vlan = new VLAN();
 
         vlan.setProviderOwnerId(org.getName());

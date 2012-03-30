@@ -29,7 +29,7 @@ public class VCloudDirectorNetworkServices extends AbstractNetworkServices {
     public VCloudDirectorNetworkServices(@Nonnull VCloudDirector provider) { this.provider = provider; }
     
     @Override
-    public @Nonnull VCloudNetworkSupport getVlanSupport() {
-        return new VCloudNetworkSupport(provider);
+    public @Nonnull VCloudDirectorNetworkSupport getVlanSupport() {
+        return new VCloudDirectorNetworkSupport(provider);
     }
 }

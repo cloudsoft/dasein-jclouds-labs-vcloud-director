@@ -29,7 +29,6 @@ import java.util.Set;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import javax.lang.model.type.ReferenceType;
 
 import org.apache.log4j.Logger;
 import org.dasein.cloud.AsynchronousTask;
@@ -49,12 +48,11 @@ import org.dasein.cloud.identity.ServiceAction;
 import org.dasein.cloud.jclouds.vcloud.director.VCloudDirector;
 import org.jclouds.rest.AuthorizationException;
 import org.jclouds.rest.RestContext;
-import org.jclouds.vcloud.director.v1_5.VCloudDirectorAsyncClient;
-import org.jclouds.vcloud.director.v1_5.VCloudDirectorClient;
 import org.jclouds.vcloud.director.v1_5.VCloudDirectorMediaType;
+import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminAsyncClient;
+import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminClient;
 import org.jclouds.vcloud.director.v1_5.domain.AdminOrg;
 import org.jclouds.vcloud.director.v1_5.domain.CaptureVAppParams;
-import org.jclouds.vcloud.director.v1_5.domain.Catalog;
 import org.jclouds.vcloud.director.v1_5.domain.CatalogItem;
 import org.jclouds.vcloud.director.v1_5.domain.CatalogType;
 import org.jclouds.vcloud.director.v1_5.domain.DeployVAppParams;
@@ -69,6 +67,9 @@ import org.jclouds.vcloud.director.v1_5.domain.VApp;
 import org.jclouds.vcloud.director.v1_5.domain.VAppTemplate;
 import org.jclouds.vcloud.director.v1_5.domain.Vdc;
 import org.jclouds.vcloud.director.v1_5.domain.Vm;
+import org.jclouds.vcloud.director.v1_5.domain.ovf.OperatingSystemSection;
+import org.jclouds.vcloud.director.v1_5.user.VCloudDirectorAsyncClient;
+import org.jclouds.vcloud.director.v1_5.user.VCloudDirectorClient;
 
 import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
@@ -88,7 +89,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
         throw new OperationNotSupportedException("Not supported");
     }
 
-    private @Nullable CatalogType findCatalog(@Nonnull RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx) throws CloudException {
+    private @Nullable CatalogType findCatalog(@Nonnull RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx) throws CloudException {
         Set<Reference> refs = provider.getOrg().getCatalogs();
         
         if( refs == null ) {
@@ -107,7 +108,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
     
     @Override
     public @Nullable MachineImage getMachineImage(@Nonnull String machineImageId) throws CloudException, InternalException {
-        RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
         
         try {
             try {
@@ -179,7 +180,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
     }
     
     private @Nonnull MachineImage executeImage(@Nonnull String vmId, @Nonnull String name, @Nonnull String description) throws CloudException, InternalException {
-        RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
         
         try {
             try {
@@ -350,7 +351,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
     }
     
     private Iterable<MachineImage> listMachineImages(AdminOrg org, boolean published) throws CloudException, InternalException {
-        RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
         
         try {
             try {
@@ -430,7 +431,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
 
     @Override
     public void remove(String machineImageId) throws CloudException, InternalException {
-        RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
         
         try {
             try {
@@ -525,7 +526,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
         throw new OperationNotSupportedException("Not supported");
     }
 
-    private MachineImage toMachineImage(RestContext<VCloudDirectorClient, VCloudDirectorAsyncClient> ctx, Org org, VAppTemplate template) {
+    private MachineImage toMachineImage(RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx, Org org, VAppTemplate template) {
         if( template == null) {
             return null;
         }
@@ -566,12 +567,9 @@ public class VAppTemplateSupport implements MachineImageSupport {
     public Platform getPlatform(VAppTemplate template) {
         String osType = null;
         
-        for( Vm vm : template.getChildren() ) {
-            VCloudOperatingSystemSection osSec = vm.getOperatingSystemSection();
-            
-            if( osSec != null ) {
-                osType = osSec.getVmwOsType();
-            }
+        OperatingSystemSection osSec = (OperatingSystemSection) Iterables.find(template.getSections(), Predicates.instanceOf(OperatingSystemSection.class));
+        if( osSec != null ) {
+            osType = osSec.getOsType();
         }
         if( osType == null ) {
             osType = template.getName() + " " + template.getDescription();
