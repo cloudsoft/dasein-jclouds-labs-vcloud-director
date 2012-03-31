@@ -18,6 +18,7 @@
 
 package org.dasein.cloud.jclouds.vcloud.director.compute;
 
+import java.math.BigInteger;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -26,10 +27,9 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
+import java.util.Set;
 
 import javax.annotation.Nonnull;
-import javax.lang.model.type.ReferenceType;
 
 import org.apache.log4j.Logger;
 import org.dasein.cloud.CloudException;
@@ -46,33 +46,39 @@ import org.dasein.cloud.dc.DataCenter;
 import org.dasein.cloud.identity.ServiceAction;
 import org.dasein.cloud.jclouds.vcloud.director.VCloudDirector;
 import org.dasein.cloud.network.VLAN;
-import org.jclouds.cim.ResourceAllocationSettingData;
-import org.jclouds.cim.ResourceAllocationSettingData.ResourceType;
-import org.jclouds.ovf.VirtualHardwareSection;
 import org.jclouds.rest.AuthorizationException;
 import org.jclouds.rest.RestContext;
 import org.jclouds.vcloud.director.v1_5.VCloudDirectorMediaType;
 import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminAsyncClient;
 import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminClient;
+import org.jclouds.vcloud.director.v1_5.domain.AbstractVAppType;
 import org.jclouds.vcloud.director.v1_5.domain.CloneVAppParams;
+import org.jclouds.vcloud.director.v1_5.domain.DeployVAppParams;
 import org.jclouds.vcloud.director.v1_5.domain.GuestCustomizationSection;
 import org.jclouds.vcloud.director.v1_5.domain.InstantiateVAppTemplateParams;
 import org.jclouds.vcloud.director.v1_5.domain.InstantiationParams;
 import org.jclouds.vcloud.director.v1_5.domain.NetworkConnection;
 import org.jclouds.vcloud.director.v1_5.domain.NetworkConnection.IpAddressAllocationMode;
 import org.jclouds.vcloud.director.v1_5.domain.NetworkConnectionSection;
-import org.jclouds.vcloud.director.v1_5.domain.NetworkConnectionSection.Builder;
 import org.jclouds.vcloud.director.v1_5.domain.Reference;
 import org.jclouds.vcloud.director.v1_5.domain.ResourceEntityType.Status;
 import org.jclouds.vcloud.director.v1_5.domain.Task;
+import org.jclouds.vcloud.director.v1_5.domain.UndeployVAppParams;
 import org.jclouds.vcloud.director.v1_5.domain.VApp;
 import org.jclouds.vcloud.director.v1_5.domain.VAppTemplate;
 import org.jclouds.vcloud.director.v1_5.domain.Vdc;
 import org.jclouds.vcloud.director.v1_5.domain.Vm;
+import org.jclouds.vcloud.director.v1_5.domain.cim.ResourceAllocationSettingData;
+import org.jclouds.vcloud.director.v1_5.domain.cim.ResourceAllocationSettingData.ResourceType;
+import org.jclouds.vcloud.director.v1_5.domain.ovf.SectionType;
+import org.jclouds.vcloud.director.v1_5.domain.ovf.VirtualHardwareSection;
+import org.jclouds.vcloud.director.v1_5.predicates.EntityPredicates;
+import org.jclouds.vcloud.director.v1_5.predicates.ReferencePredicates;
 
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Sets;
 
 public class VmSupport implements VirtualMachineSupport {
     static private final Logger logger = Logger.getLogger(VirtualMachineSupport.class);
@@ -87,7 +93,7 @@ public class VmSupport implements VirtualMachineSupport {
         
         try {
             try {
-                Task task = ctx.getApi().getVmClient().powerOnVm(provider.toHref(ctx, vmId));
+                Task task = ctx.getApi().getVAppClient().powerOn(provider.toHref(ctx, vmId));
                 
                 provider.waitForTask(task);
             }
@@ -250,7 +256,7 @@ public class VmSupport implements VirtualMachineSupport {
                 VAppTemplate template = ctx.getApi().getVAppTemplateClient().getVAppTemplate(provider.toHref(ctx, fromMachineImageId));
 
                 for( VAppTemplate child : template.getChildren() ) {
-                    NetworkConnectionSection section = (NetworkConnectionSection) Iterables.find(child.getSections(), Predicates.instanceOf(NetworkConnectionSection.class));
+                    NetworkConnectionSection section = getSection(child, NetworkConnectionSection.class);
                     for( NetworkConnection c : section.getNetworkConnections() ) {
                         System.out.println("Template connection: " + c.getIpAddressAllocationMode());
                     }
@@ -259,8 +265,10 @@ public class VmSupport implements VirtualMachineSupport {
                 options.deploy(false);
                 if( inVlanId != null ) {
                     NetworkConnection connection = NetworkConnection.builder().network(inVlanId).build();
-                    
-                    options.instantiationParams(InstantiationParams.builder().section(NetworkConnectionSection.builder().networkConnection(connection).build()).build());
+                    InstantiationParams instantiate = InstantiationParams.builder()
+                            .section(NetworkConnectionSection.builder().networkConnection(connection).build())
+                            .build();
+                    options.instantiationParams(instantiate);
                 }
                 VApp app = ctx.getApi().getVdcClient().instantiateVApp(template.getHref(), options.build());
                 
@@ -281,13 +289,14 @@ public class VmSupport implements VirtualMachineSupport {
                 for( Vm vm : children ) {
                     i++;
                     vm = provider.waitForIdle(ctx, vm);
-                    GuestCustomizationSection s = vm.getGuestCustomizationSection();
+                    GuestCustomizationSection s = getSection(vm, GuestCustomizationSection.class);
+                    GuestCustomizationSection.Builder<?> sb = s.toBuilder();
                     String n = (children.size() < 2 ? (name + "-" + i) : name);
                     
-                    s.setEnabled(true);
-                    s.setInfo(name);
-                    s.setComputerName(n);
-                    ctx.getApi().getVmClient().updateGuestCustomizationOfVm(s, vm.getHref());
+                    sb.enabled(true);
+                    sb.info(name);
+                    sb.computerName(n);
+                    ctx.getApi().getVAppClient().modifyGuestCustomizationSection(vm.getHref(), sb.build());
                 }
                 app = provider.waitForIdle(ctx, app);
                 VLAN network = null;
@@ -303,37 +312,46 @@ public class VmSupport implements VirtualMachineSupport {
                 }
                 for( Vm vm : children ) {
                     vm = provider.waitForIdle(ctx, vm);
-                    
-                    ArrayList<NetworkConnection> connections = new ArrayList<NetworkConnection>();
-                    NetworkConnectionSection section = vm.getNetworkConnectionSection();
-                    Builder sectionBuilder = section.toBuilder();                    
 
-                    sectionBuilder.connections(connections);
-                    section = sectionBuilder.build();
-                    provider.waitForTask(ctx.getApi().getVmClient().updateNetworkConnectionOfVm(section, vm.getHref()));
+                    NetworkConnectionSection section = ctx.getApi().getVAppClient().getNetworkConnectionSection(vm.getHref())
+                            .toBuilder()
+                            .networkConnections(Sets.<NetworkConnection>newLinkedHashSet())
+                            .build();
+                    provider.waitForTask(ctx.getApi().getVAppClient().modifyNetworkConnectionSection(vm.getHref(), section));
                     vm = provider.waitForIdle(ctx, vm);
-                    section = vm.getNetworkConnectionSection();
-                    sectionBuilder = section.toBuilder();
-                    connections.clear();
                     
-                    NetworkConnection.Builder b = NetworkConnection.builder().connected(true);
-                    
-                    b.ipAddressAllocationMode(IpAddressAllocationMode.POOL);
-                    b.network(network.getName());
-                    b.networkConnectionIndex(0);
-                    connections.add(b.build());
-                    
-                    sectionBuilder.connections(connections);
-                    section = sectionBuilder.build();
-                    provider.waitForTask(ctx.getApi().getVmClient().updateNetworkConnectionOfVm(section, vm.getHref()));
+                    NetworkConnection connection = NetworkConnection.builder()
+                            .isConnected(true)
+		                    .ipAddressAllocationMode(IpAddressAllocationMode.POOL.getLabel())
+		                    .network(network.getName())
+		                    .networkConnectionIndex(0)
+		                    .build();
+                    section = ctx.getApi().getVAppClient().getNetworkConnectionSection(vm.getHref())
+                            .toBuilder()
+                            .networkConnection(connection)
+                            .build();
+                    provider.waitForTask(ctx.getApi().getVAppClient().modifyNetworkConnectionSection(vm.getHref(), section));
                     vm = provider.waitForIdle(ctx, vm);
-                    provider.waitForTask(ctx.getApi().getVmClient().updateCPUCountOfVm(product.getCpuCount(), vm.getHref()));
+
+                    // FIXME
+
+                    ResourceAllocationSettingData cpu = ctx.getApi().getVAppClient().getVirtualHardwareSectionCpu(vm.getHref())
+                            .toBuilder()
+                            .virtualQuantity(BigInteger.valueOf(product.getCpuCount()))
+                            .build();
+                    provider.waitForTask(ctx.getApi().getVAppClient().modifyVirtualHardwareSectionCpu(vm.getHref(), cpu));
                     vm = provider.waitForIdle(ctx, vm);
-                    provider.waitForTask(ctx.getApi().getVmClient().updateMemoryMBOfVm(product.getRamInMb(), vm.getHref()));
+
+                    ResourceAllocationSettingData ram = ctx.getApi().getVAppClient().getVirtualHardwareSectionCpu(vm.getHref())
+                            .toBuilder()
+                            .virtualQuantity(BigInteger.valueOf(product.getRamInMb()))
+                            .build();
+                    provider.waitForTask(ctx.getApi().getVAppClient().modifyVirtualHardwareSectionMemory(vm.getHref(), ram));
                     vm = provider.waitForIdle(ctx, vm);
                 }
                 app = provider.waitForIdle(ctx, app);
-                ctx.getApi().getVAppClient().deployAndPowerOnVApp(app.getHref());
+                DeployVAppParams deploy = DeployVAppParams.builder().powerOn().build();
+                ctx.getApi().getVAppClient().deploy(app.getHref(), deploy);
                 
                 Collection<VirtualMachine> vms = toVirtualMachines(ctx, app);
                 
@@ -398,18 +416,16 @@ public class VmSupport implements VirtualMachineSupport {
                     Vdc vdc = provider.getDataCenterServices().getVdc(dc.getProviderDataCenterId());
                     System.out.println("dc for " + dc.getProviderDataCenterId() + "=" + vdc);
                     if( vdc != null ) {
-                        Map<String, ReferenceType> map = vdc.getResourceEntities();
+                        Set<Reference> refs = vdc.getResourceEntities();
                     
-                        if( map == null ) {
+                        if( refs == null ) {
                             return Collections.emptyList();
                         }
-                        for( Reference type : refs ) {
-                            if( type.getType().equals(VCloudDirectorMediaType.VAPP) ) {
-                                VApp app = ctx.getApi().getVAppClient().getVApp(type.getHref());
+                        for( Reference type : Iterables.filter(refs, ReferencePredicates.typeEquals(VCloudDirectorMediaType.VAPP)) ) {
+                            VApp app = ctx.getApi().getVAppClient().getVApp(type.getHref());
                                 
-                                if( app != null ) {
-                                    list.addAll(toVirtualMachines(ctx, app));
-                               }
+                            if( app != null ) {
+                                list.addAll(toVirtualMachines(ctx, app));
                             }
                         }
                     }
@@ -440,7 +456,7 @@ public class VmSupport implements VirtualMachineSupport {
         
         try {
             try {
-                provider.waitForTask(ctx.getApi().getVmClient().powerOffVm(provider.toHref(ctx, vmId)));
+                provider.waitForTask(ctx.getApi().getVAppClient().powerOff(provider.toHref(ctx, vmId)));
             }
             catch( RuntimeException e ) {
                 logger.error("Error booting " + vmId + ": " + e.getMessage());
@@ -461,7 +477,7 @@ public class VmSupport implements VirtualMachineSupport {
         
         try {
             try {
-                ctx.getApi().getVmClient().rebootVm(provider.toHref(ctx, vmId));
+                ctx.getApi().getVAppClient().reboot(provider.toHref(ctx, vmId));
             }
             catch( RuntimeException e ) {
                 logger.error("Error rebooting " + vmId + ": " + e.getMessage());
@@ -487,19 +503,20 @@ public class VmSupport implements VirtualMachineSupport {
         
         try {
             try {
-                Vm vm = ctx.getApi().getVmClient().getVm(provider.toHref(ctx, vmId));
+                Vm vm = Iterables.find(ctx.getApi().getVAppClient().getVApp(provider.toHref(ctx, vmId)).getChildren().getVms(),
+                        EntityPredicates.hrefEquals(vm.getHref()));
                 
                 if( vm == null ) {
                     throw new CloudException("No such VM: " + vmId);
                 }
-                VApp parent = ctx.getApi().getVAppClient().getVApp(vm.getParent().getHref());
+                VApp parent = ctx.getApi().getVAppClient().getVApp(vm.getVAppParent().getHref());
                 
                 if( parent.getType().equals(VCloudDirectorMediaType.VAPP) ) {
                     parent = provider.waitForIdle(ctx, parent);
                     vm = ctx.getApi().getVmClient().getVm(vm.getHref());
-                    if( vm.getStatus().equals(Status.ON) ) {
+                    if( vm.getStatus().equals(Status.POWERED_ON) ) {
                         vm = provider.waitForIdle(ctx, vm);
-                        provider.waitForTask(ctx.getApi().getVmClient().powerOffVm(vm.getHref()));
+                        provider.waitForTask(ctx.getApi().getVAppClient().powerOff(vm.getHref()));
                     }
                     vm = provider.waitForIdle(ctx, vm);
                     parent = ctx.getApi().getVAppClient().getVApp(parent.getHref());
@@ -507,13 +524,16 @@ public class VmSupport implements VirtualMachineSupport {
                     int count = 0;
                     
                     for( Vm child : parent.getChildren().getVms() ) {
-                        if( child.getStatus().equals(Status.ON) ) {
+                        if( child.getStatus().equals(Status.POWERED_ON) ) {
                             count++;
                         }
                     }
                     if( count < 1 ) {
                         parent = provider.waitForIdle(ctx, parent);
-                        try { provider.waitForTask(ctx.getApi().getVAppClient().undeployVApp(parent.getHref())); }
+                        UndeployVAppParams undeploy = UndeployVAppParams.builder()
+                                .undeployPowerAction(UndeployVAppParams.PowerAction.POWER_OFF)
+                                .build();
+                        try { provider.waitForTask(ctx.getApi().getVAppClient().undeploy(parent.getHref(), undeploy)); }
                         catch( Throwable ignore ) { }
                         parent = provider.waitForIdle(ctx, parent);
                         for( Vm child : parent.getChildren().getVms() ) {
@@ -534,13 +554,16 @@ public class VmSupport implements VirtualMachineSupport {
                     }
                 }
                 else {
-                    if( vm.getStatus().equals(Status.ON) ){
+                    if( vm.getStatus().equals(Status.POWERED_ON) ){
                         vm = provider.waitForIdle(ctx, vm);
-                        provider.waitForTask(ctx.getApi().getVmClient().powerOffVm(vm.getHref()));
+                        provider.waitForTask(ctx.getApi().getVAppClient().powerOff(vm.getHref()));
                     }
                     vm = provider.waitForIdle(ctx, vm);
                     if( vm.getStatus().equals(Status.DEPLOYED) ){
-                        provider.waitForTask(ctx.getApi().getVmClient().undeployVm(vm.getHref()));
+                        UndeployVAppParams undeploy = UndeployVAppParams.builder()
+                                .undeployPowerAction(UndeployVAppParams.PowerAction.POWER_OFF)
+                                .build();
+                        provider.waitForTask(ctx.getApi().getVAppClient().undeploy(vm.getHref(), undeploy));
                         while( vm != null && vm.getStatus().equals(Status.DEPLOYED) ) {
                             try { Thread.sleep(5000L); }
                             catch( InterruptedException e ) { }
@@ -576,7 +599,7 @@ public class VmSupport implements VirtualMachineSupport {
         vm.setProviderOwnerId(provider.getOrg().getName());
         vm.setProviderRegionId(provider.getContext().getRegionId());
         vm.setProviderAssignedIpAddressId(null);
-        vm.setProviderDataCenterId(provider.toId(ctx, app.getVDC().getHref()));
+        vm.setProviderDataCenterId(provider.toId(ctx, app.getVdc().getHref()));
         vm.setPlatform(Platform.guess(vm.getName() + " " + vm.getDescription()));
         vm.setArchitecture(Architecture.I64);
         vm.setClonable(true);
@@ -598,15 +621,15 @@ public class VmSupport implements VirtualMachineSupport {
         }
         
         
-        VirtualHardwareSection hardware = vcloudVm.getVirtualHardwareSection();
+        VirtualHardwareSection hardware = getSection(vcloudVm, VirtualHardwareSection.class);
         long ram = 256, cpus = 1;
         
         for( ResourceAllocationSettingData allocation : hardware.getItems() ) {
             if( allocation.getResourceType().equals(ResourceType.MEMORY) ) {
-                ram = allocation.getVirtualQuantity();
+                ram = allocation.getVirtualQuantity().intValue();
             }
             else if( allocation.getResourceType().equals(ResourceType.PROCESSOR) ) {
-                cpus = allocation.getVirtualQuantity();
+                cpus = allocation.getVirtualQuantity().intValue();
             }
         }
         VirtualMachineProduct product = getProduct(ram + ":" + cpus);
@@ -625,15 +648,15 @@ public class VmSupport implements VirtualMachineSupport {
         ArrayList<String> privateIpAddresses = new ArrayList<String>();
         String externalIp = null, providerNetworkId = null;
         
-        System.out.println("Checking network connections: " + vcloudVm.getNetworkConnectionSection().getConnections());
+        System.out.println("Checking network connections: " + getSection(vcloudVm, NetworkConnectionSection.class).getNetworkConnections());
         
-        for( NetworkConnection c : vcloudVm.getNetworkConnectionSection().getConnections() ) {
+        for( NetworkConnection c : getSection(vcloudVm, NetworkConnectionSection.class).getNetworkConnections() ) {
             System.out.println("EXT=" + c.getExternalIpAddress());
             System.out.println("Assigned=" + c.getIpAddress());
             System.out.println("Model=" + c.getIpAddressAllocationMode());
             System.out.println("Network=" + c.getNetwork());
 
-            if( c.getNetworkConnectionIndex() == vcloudVm.getNetworkConnectionSection().getPrimaryNetworkConnectionIndex() ) {
+            if( c.getNetworkConnectionIndex() == getSection(vcloudVm, NetworkConnectionSection.class).getPrimaryNetworkConnectionIndex() ) {
                 Iterable<VLAN> vlans = provider.getNetworkServices().getVlanSupport().listVlans();
                 
                 for( VLAN vlan : vlans ) {
@@ -693,7 +716,7 @@ public class VmSupport implements VirtualMachineSupport {
             vm.setPublicIpAddresses(publicIpAddresses.toArray(new String[0]));
         }
         vm.setProviderVlanId(providerNetworkId);
-        vm.setRootPassword(vcloudVm.getGuestCustomizationSection().getAdminPassword());
+        vm.setRootPassword(getSection(vcloudVm, GuestCustomizationSection.class).getAdminPassword());
         vm.setRootUser(vm.getPlatform().isWindows() ? "administrator" : "root");
         vm.setTags(new HashMap<String,String>());
         switch( Status.fromValue(vcloudVm.getStatus()) ) {
@@ -758,6 +781,16 @@ public class VmSupport implements VirtualMachineSupport {
             }
         }
         return vms;
+    }
+
+    private <S extends SectionType> S getSection(AbstractVAppType vapp, Class<S> sectionClass) {
+        S section = (S) Iterables.find(vapp.getSections(), Predicates.instanceOf(sectionClass));
+        return section;
+    }
+
+    private <S extends SectionType> S getSection(VAppTemplate template, Class<S> sectionClass) {
+        S section = (S) Iterables.find(template.getSections(), Predicates.instanceOf(sectionClass));
+        return section;
     }
 
 }

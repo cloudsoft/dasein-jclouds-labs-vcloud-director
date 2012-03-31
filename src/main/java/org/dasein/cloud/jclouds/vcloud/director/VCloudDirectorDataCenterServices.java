@@ -87,7 +87,7 @@ public class VCloudDirectorDataCenterServices implements DataCenterServices {
         return null;
     }
 
-    public @Nullable Vdc getVDC(@Nonnull String vdcId) throws CloudException {
+    public @Nullable Vdc getVdc(@Nonnull String vdcId) throws CloudException {
         RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
 
         try {

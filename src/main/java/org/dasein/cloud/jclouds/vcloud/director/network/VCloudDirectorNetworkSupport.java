@@ -20,6 +20,7 @@ package org.dasein.cloud.jclouds.vcloud.director.network;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -45,12 +46,12 @@ import org.jclouds.vcloud.director.v1_5.domain.IpScope;
 import org.jclouds.vcloud.director.v1_5.domain.Network;
 import org.jclouds.vcloud.director.v1_5.domain.NetworkConnection;
 import org.jclouds.vcloud.director.v1_5.domain.NetworkConnectionSection;
-import org.jclouds.vcloud.director.v1_5.domain.OrgNetwork;
 import org.jclouds.vcloud.director.v1_5.domain.Reference;
 import org.jclouds.vcloud.director.v1_5.domain.Vm;
 
 import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 
 public class VCloudDirectorNetworkSupport implements VLANSupport {
     static private final Logger logger = Logger.getLogger(VCloudDirectorNetworkSupport.class);
@@ -100,8 +101,8 @@ public class VCloudDirectorNetworkSupport implements VLANSupport {
         try {
             try {
                 Set<Reference> refs = provider.getOrg().getNetworks();
-                ArrayList<NetworkInterface> list = new ArrayList<NetworkInterface>();
-                ArrayList<OrgNetwork> networks = new ArrayList<OrgNetwork>();
+                List<NetworkInterface> list = Lists.newArrayList();
+                List<Network> networks = Lists.newArrayList();
                 Vm vm = ctx.getApi().getVmClient().getVm(provider.toHref(ctx, forVmId));
                 NetworkConnection def = null;
 
@@ -123,7 +124,7 @@ public class VCloudDirectorNetworkSupport implements VLANSupport {
                     nic.setProviderNetworkInterfaceId(c.getMACAddress());
                     nic.setIpAddress(c.getIpAddress());
                     nic.setProviderVirtualMachineId(forVmId);
-                    for( OrgNetwork network : networks ) {
+                    for( Network network : networks ) {
                         if( network.getName().equals(c.getNetwork()) ) {
                             IpScope scope = network.getConfiguration().getIpScope();
                             
