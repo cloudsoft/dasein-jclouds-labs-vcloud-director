@@ -503,8 +503,7 @@ public class VmSupport implements VirtualMachineSupport {
         
         try {
             try {
-                Vm vm = Iterables.find(ctx.getApi().getVAppClient().getVApp(provider.toHref(ctx, vmId)).getChildren().getVms(),
-                        EntityPredicates.hrefEquals(vm.getHref()));
+                Vm vm = provider.getVm(ctx, vApp, vmId);
                 
                 if( vm == null ) {
                     throw new CloudException("No such VM: " + vmId);
@@ -513,7 +512,7 @@ public class VmSupport implements VirtualMachineSupport {
                 
                 if( parent.getType().equals(VCloudDirectorMediaType.VAPP) ) {
                     parent = provider.waitForIdle(ctx, parent);
-                    vm = ctx.getApi().getVmClient().getVm(vm.getHref());
+                    vm = ctx.getApi().getVAppClient().getVAPp(vm.getHref());
                     if( vm.getStatus().equals(Status.POWERED_ON) ) {
                         vm = provider.waitForIdle(ctx, vm);
                         provider.waitForTask(ctx.getApi().getVAppClient().powerOff(vm.getHref()));
@@ -783,13 +782,8 @@ public class VmSupport implements VirtualMachineSupport {
         return vms;
     }
 
-    private <S extends SectionType> S getSection(AbstractVAppType vapp, Class<S> sectionClass) {
+    public static <S extends SectionType> S getSection(AbstractVAppType vapp, Class<S> sectionClass) {
         S section = (S) Iterables.find(vapp.getSections(), Predicates.instanceOf(sectionClass));
-        return section;
-    }
-
-    private <S extends SectionType> S getSection(VAppTemplate template, Class<S> sectionClass) {
-        S section = (S) Iterables.find(template.getSections(), Predicates.instanceOf(sectionClass));
         return section;
     }
 

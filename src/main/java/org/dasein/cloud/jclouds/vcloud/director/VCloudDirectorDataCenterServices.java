@@ -60,7 +60,7 @@ public class VCloudDirectorDataCenterServices implements DataCenterServices {
         RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
 
         try {
-            return toDataCenter(ctx, getVDC(providerDataCenterId));
+            return toDataCenter(ctx, getVdc(providerDataCenterId));
         }
         finally {
             ctx.close();

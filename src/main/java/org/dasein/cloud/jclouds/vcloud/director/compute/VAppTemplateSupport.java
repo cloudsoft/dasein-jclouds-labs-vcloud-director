@@ -68,6 +68,7 @@ import org.jclouds.vcloud.director.v1_5.domain.VAppTemplate;
 import org.jclouds.vcloud.director.v1_5.domain.Vdc;
 import org.jclouds.vcloud.director.v1_5.domain.Vm;
 import org.jclouds.vcloud.director.v1_5.domain.ovf.OperatingSystemSection;
+import org.jclouds.vcloud.director.v1_5.domain.ovf.SectionType;
 
 import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
@@ -115,7 +116,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
                 if( template == null ) {
                     return null;
                 }
-                Vdc vdc = ctx.getApi().getVdcClient().getVDC(template.getVdc().getHref());
+                Vdc vdc = ctx.getApi().getVdcClient().getVdc(template.getVdc().getHref());
                 Org org = ctx.getApi().getOrgClient().getOrg(vdc.getOrg().getHref());
                 
                 return toMachineImage(ctx, org, template);
@@ -273,14 +274,14 @@ public class VAppTemplateSupport implements MachineImageSupport {
                                 builder.isConnected(true);
                                 connections.add(builder.build());
                             }
-                            NetworkConnectionSection section = (NetworkConnectionSection) Iterables.find(child.getSections(), Predicates.instanceOf(NetworkConnectionSection.class));
-                            NetworkConnectionSection.Builder<?> sb = NetworkConnectionSection.builder().fromNetworkConnectionSection(section);
-                            
-                            sb.networkConnections(connections);
+                            NetworkConnectionSection section = VmSupport.getSection(child, NetworkConnectionSection.class)
+                                    .toBuilder()
+                                    .networkConnections(connections)
+                                    .build();
                             if( logger.isInfoEnabled() ) {
                                 logger.info("Resetting network connection for " + child);
                             }
-                            provider.waitForTask(ctx.getApi().getVmClient().updateNetworkConnectionOfVm(sb.build(), child.getHref()));                    
+                            provider.waitForTask(ctx.getApi().getVAppClient().modifyNetworkConnectionSection(child.getHref(), section));                    
                         }
                         parent = provider.waitForIdle(ctx, parent);
                         try {
@@ -573,5 +574,10 @@ public class VAppTemplateSupport implements MachineImageSupport {
             osType = template.getName() + " " + template.getDescription();
         }
         return Platform.guess(osType);
-    }        
+    }
+
+    public static <S extends SectionType> S getSection(VAppTemplate template, Class<S> sectionClass) {
+        S section = (S) Iterables.find(template.getSections(), Predicates.instanceOf(sectionClass));
+        return section;
+    }
 }
