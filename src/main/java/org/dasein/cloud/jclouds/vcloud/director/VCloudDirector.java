@@ -42,11 +42,11 @@ import org.jclouds.logging.log4j.config.Log4JLoggingModule;
 import org.jclouds.rest.RestContext;
 import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminAsyncClient;
 import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminClient;
-import org.jclouds.vcloud.director.v1_5.domain.AdminOrg;
 import org.jclouds.vcloud.director.v1_5.domain.Reference;
 import org.jclouds.vcloud.director.v1_5.domain.Task;
 import org.jclouds.vcloud.director.v1_5.domain.VApp;
 import org.jclouds.vcloud.director.v1_5.domain.Vm;
+import org.jclouds.vcloud.director.v1_5.domain.org.AdminOrg;
 import org.jclouds.vcloud.director.v1_5.predicates.ReferencePredicates;
 
 import com.google.common.base.Predicate;

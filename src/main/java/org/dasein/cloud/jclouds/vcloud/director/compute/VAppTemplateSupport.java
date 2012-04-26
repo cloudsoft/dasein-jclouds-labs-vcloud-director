@@ -20,6 +20,7 @@ package org.dasein.cloud.jclouds.vcloud.director.compute;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -46,29 +47,32 @@ import org.dasein.cloud.compute.Platform;
 import org.dasein.cloud.compute.VirtualMachine;
 import org.dasein.cloud.identity.ServiceAction;
 import org.dasein.cloud.jclouds.vcloud.director.VCloudDirector;
+import org.jclouds.dmtf.ovf.SectionType;
 import org.jclouds.rest.AuthorizationException;
 import org.jclouds.rest.RestContext;
 import org.jclouds.vcloud.director.v1_5.VCloudDirectorMediaType;
 import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminAsyncClient;
 import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminClient;
-import org.jclouds.vcloud.director.v1_5.domain.AdminOrg;
-import org.jclouds.vcloud.director.v1_5.domain.CaptureVAppParams;
+import org.jclouds.vcloud.director.v1_5.domain.Catalog;
 import org.jclouds.vcloud.director.v1_5.domain.CatalogItem;
-import org.jclouds.vcloud.director.v1_5.domain.CatalogType;
-import org.jclouds.vcloud.director.v1_5.domain.DeployVAppParams;
-import org.jclouds.vcloud.director.v1_5.domain.NetworkConnection;
-import org.jclouds.vcloud.director.v1_5.domain.NetworkConnectionSection;
-import org.jclouds.vcloud.director.v1_5.domain.Org;
+import org.jclouds.vcloud.director.v1_5.domain.Link;
 import org.jclouds.vcloud.director.v1_5.domain.Reference;
-import org.jclouds.vcloud.director.v1_5.domain.ResourceEntityType.Status;
+import org.jclouds.vcloud.director.v1_5.domain.ResourceEntity.Status;
 import org.jclouds.vcloud.director.v1_5.domain.Task;
-import org.jclouds.vcloud.director.v1_5.domain.UndeployVAppParams;
 import org.jclouds.vcloud.director.v1_5.domain.VApp;
 import org.jclouds.vcloud.director.v1_5.domain.VAppTemplate;
 import org.jclouds.vcloud.director.v1_5.domain.Vdc;
 import org.jclouds.vcloud.director.v1_5.domain.Vm;
-import org.jclouds.vcloud.director.v1_5.domain.ovf.OperatingSystemSection;
-import org.jclouds.vcloud.director.v1_5.domain.ovf.SectionType;
+import org.jclouds.vcloud.director.v1_5.domain.network.NetworkConnection;
+import org.jclouds.vcloud.director.v1_5.domain.org.AdminOrg;
+import org.jclouds.vcloud.director.v1_5.domain.org.Org;
+import org.jclouds.vcloud.director.v1_5.domain.params.CaptureVAppParams;
+import org.jclouds.vcloud.director.v1_5.domain.params.DeployVAppParams;
+import org.jclouds.vcloud.director.v1_5.domain.params.UndeployVAppParams;
+import org.jclouds.vcloud.director.v1_5.domain.params.UndeployVAppParams.PowerAction;
+import org.jclouds.vcloud.director.v1_5.domain.section.NetworkConnectionSection;
+import org.jclouds.vcloud.director.v1_5.domain.section.OperatingSystemSection;
+import org.jclouds.vcloud.director.v1_5.predicates.LinkPredicates;
 
 import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
@@ -88,7 +92,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
         throw new OperationNotSupportedException("Not supported");
     }
 
-    private @Nullable CatalogType findCatalog(@Nonnull RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx) throws CloudException {
+    private @Nullable Catalog findCatalog(@Nonnull RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx) throws CloudException {
         Set<Reference> refs = provider.getOrg().getCatalogs();
         
         if( refs == null ) {
@@ -96,7 +100,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
         }
         
         for( Reference ref : refs ) {
-            CatalogType c = ctx.getApi().getCatalogClient().getCatalog(ref.getHref()); 
+            Catalog c = ctx.getApi().getCatalogClient().getCatalog(ref.getHref()); 
             
             if( !c.isPublished() ) {
                 return c;
@@ -116,8 +120,14 @@ public class VAppTemplateSupport implements MachineImageSupport {
                 if( template == null ) {
                     return null;
                 }
-                Vdc vdc = ctx.getApi().getVdcClient().getVdc(template.getVdc().getHref());
-                Org org = ctx.getApi().getOrgClient().getOrg(vdc.getOrg().getHref());
+                URI vdcURI = Iterables.find(template.getLinks(),
+                        Predicates.and(LinkPredicates.relEquals(Link.Rel.UP),
+                                LinkPredicates.typeEquals(VCloudDirectorMediaType.VDC))).getHref();
+                Vdc vdc = ctx.getApi().getVdcClient().getVdc(vdcURI);
+                URI orgURI = Iterables.find(vdc.getLinks(),
+                        Predicates.and(LinkPredicates.relEquals(Link.Rel.UP),
+                                LinkPredicates.typeEquals(VCloudDirectorMediaType.VDC))).getHref();
+                AdminOrg org = ctx.getApi().getOrgClient().getOrg(orgURI);
                 
                 return toMachineImage(ctx, org, template);
             }
@@ -184,13 +194,13 @@ public class VAppTemplateSupport implements MachineImageSupport {
         try {
             try {
                 VirtualMachine vm = provider.getComputeServices().getVirtualMachineSupport().getVirtualMachine(vmId);
-                Vm vcloudVm = null; // FIXME ctx.getApi().getVAppClient().getVm(provider.toHref(ctx, vmId));
+                Vm vcloudVm = ctx.getApi().getVmClient().getVm(provider.toHref(ctx, vmId));
                 VApp parent = ctx.getApi().getVAppClient().getVApp(vcloudVm.getVAppParent().getHref());
                 
                 if( parent.getStatus().equals(Status.POWERED_ON) ) {
                     provider.waitForTask(ctx.getApi().getVAppClient().powerOff(parent.getHref()));
                 }
-                UndeployVAppParams params = UndeployVAppParams.builder().undeployPowerAction("powerOff").build();
+                UndeployVAppParams params = UndeployVAppParams.builder().undeployPowerAction(PowerAction.POWER_OFF).build();
                 provider.waitForTask(ctx.getApi().getVAppClient().undeploy(parent.getHref(), params));
                 HashMap<String,Collection<NetworkConnection.Builder>> oldBuilders = new HashMap<String,Collection<NetworkConnection.Builder>>();
                 for( Vm child : parent.getChildren().getVms() ) {
@@ -239,7 +249,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
                     if( logger.isDebugEnabled() ) {
                         logger.debug("Template=" + template);
                     }
-                    CatalogType catalog = findCatalog(ctx);
+                    Catalog catalog = findCatalog(ctx);
                     
                     if( logger.isInfoEnabled() ) {
                         logger.info("Adding " + template + " to catalog " + catalog);
@@ -281,7 +291,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
                             if( logger.isInfoEnabled() ) {
                                 logger.info("Resetting network connection for " + child);
                             }
-                            provider.waitForTask(ctx.getApi().getVAppClient().modifyNetworkConnectionSection(child.getHref(), section));                    
+                            provider.waitForTask(ctx.getApi().getVmClient().modifyNetworkConnectionSection(child.getHref(), section));                    
                         }
                         parent = provider.waitForIdle(ctx, parent);
                         try {
@@ -362,7 +372,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
                 ArrayList<MachineImage> images = new ArrayList<MachineImage>();
 
                 for( Reference type : refs ) {
-                    CatalogType c = ctx.getApi().getCatalogClient().getCatalog(type.getHref());
+                    Catalog c = ctx.getApi().getCatalogClient().getCatalog(type.getHref());
                     
                     if( c != null && (c.isPublished() == published) ) {
                         for( Reference itemType : c.getCatalogItems() ) {
@@ -566,7 +576,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
     public Platform getPlatform(VAppTemplate template) {
         String osType = null;
         
-        OperatingSystemSection osSec = (OperatingSystemSection) Iterables.find(template.getSections(), Predicates.instanceOf(OperatingSystemSection.class));
+        OperatingSystemSection osSec = getSection(template, OperatingSystemSection.class);
         if( osSec != null ) {
             osType = osSec.getOsType();
         }

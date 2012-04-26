@@ -41,13 +41,13 @@ import org.jclouds.rest.RestContext;
 import org.jclouds.vcloud.director.v1_5.VCloudDirectorMediaType;
 import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminAsyncClient;
 import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminClient;
-import org.jclouds.vcloud.director.v1_5.domain.AdminOrg;
-import org.jclouds.vcloud.director.v1_5.domain.IpScope;
-import org.jclouds.vcloud.director.v1_5.domain.Network;
-import org.jclouds.vcloud.director.v1_5.domain.NetworkConnection;
-import org.jclouds.vcloud.director.v1_5.domain.NetworkConnectionSection;
 import org.jclouds.vcloud.director.v1_5.domain.Reference;
 import org.jclouds.vcloud.director.v1_5.domain.Vm;
+import org.jclouds.vcloud.director.v1_5.domain.network.IpScope;
+import org.jclouds.vcloud.director.v1_5.domain.network.Network;
+import org.jclouds.vcloud.director.v1_5.domain.network.NetworkConnection;
+import org.jclouds.vcloud.director.v1_5.domain.org.AdminOrg;
+import org.jclouds.vcloud.director.v1_5.domain.section.NetworkConnectionSection;
 
 import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
