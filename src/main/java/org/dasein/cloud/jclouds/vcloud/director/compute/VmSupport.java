@@ -52,8 +52,8 @@ import org.jclouds.dmtf.ovf.SectionType;
 import org.jclouds.rest.AuthorizationException;
 import org.jclouds.rest.RestContext;
 import org.jclouds.vcloud.director.v1_5.VCloudDirectorMediaType;
-import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminAsyncClient;
-import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminClient;
+import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminAsyncApi;
+import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminApi;
 import org.jclouds.vcloud.director.v1_5.domain.AbstractVAppType;
 import org.jclouds.vcloud.director.v1_5.domain.Link;
 import org.jclouds.vcloud.director.v1_5.domain.Reference;
@@ -91,11 +91,11 @@ public class VmSupport implements VirtualMachineSupport {
     
     @Override
     public void boot(String vmId) throws InternalException, CloudException {
-        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx = provider.getCloudClient();
         
         try {
             try {
-                Task task = ctx.getApi().getVAppClient().powerOn(provider.toHref(ctx, vmId));
+                Task task = ctx.getApi().getVAppApi().powerOn(provider.toHref(ctx, vmId));
                 
                 provider.waitForTask(task);
             }
@@ -114,7 +114,7 @@ public class VmSupport implements VirtualMachineSupport {
 
     @Override
     public VirtualMachine clone(String vmId, String intoDcId, String name, String description, boolean powerOn, String... firewallIds) throws InternalException, CloudException {
-        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx = provider.getCloudClient();
         
         try {
             try {
@@ -125,7 +125,7 @@ public class VmSupport implements VirtualMachineSupport {
                 }
                 // note this says vmId, but the copy operation is on the vApp. you might want to rename this variable accordingly
                 URI vAppUri = null;
-                VApp clone = ctx.getApi().getVdcClient().cloneVApp(vAppUri, options.build());
+                VApp clone = ctx.getApi().getVdcApi().cloneVApp(vAppUri, options.build());
 
                 Task task = Iterables.find(clone.getTasks(), new Predicate<Task>() {
                     @Override
@@ -247,7 +247,7 @@ public class VmSupport implements VirtualMachineSupport {
 
     @Override
     public VirtualMachine launch(String fromMachineImageId, VirtualMachineProduct product, String dataCenterId, String name, String description, String withKeypairId, String inVlanId, boolean withAnalytics, boolean asSandbox, String[] firewallIds, Tag... tags) throws InternalException, CloudException {
-        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx = provider.getCloudClient();
         
         provider.getComputeServices().getImageSupport().listMachineImages();
         try {
@@ -255,13 +255,11 @@ public class VmSupport implements VirtualMachineSupport {
                 product = getProduct(product.getProductId());
 
                 InstantiateVAppTemplateParams.Builder<?> options = InstantiateVAppTemplateParams.builder().description(fromMachineImageId);
-                VAppTemplate template = ctx.getApi().getVAppTemplateClient().getVAppTemplate(provider.toHref(ctx, fromMachineImageId));
+                VAppTemplate template = ctx.getApi().getVAppTemplateApi().get(provider.toHref(ctx, fromMachineImageId));
 
-                for( VAppTemplate child : template.getChildren() ) {
-                    NetworkConnectionSection section = VAppTemplateSupport.getSection(child, NetworkConnectionSection.class);
-                    for( NetworkConnection c : section.getNetworkConnections() ) {
-                        System.out.println("Template connection: " + c.getIpAddressAllocationMode());
-                    }
+                NetworkConnectionSection networkSection = VAppTemplateSupport.getSection(template, NetworkConnectionSection.class);
+                for( NetworkConnection c : networkSection.getNetworkConnections() ) {
+                    System.out.println("Template connection: " + c.getIpAddressAllocationMode());
                 }
                 options.powerOn(false);
                 options.deploy(false);
@@ -272,7 +270,7 @@ public class VmSupport implements VirtualMachineSupport {
                             .build();
                     options.instantiationParams(instantiate);
                 }
-                VApp app = ctx.getApi().getVdcClient().instantiateVApp(template.getHref(), options.build());
+                VApp app = ctx.getApi().getVdcApi().instantiateVApp(template.getHref(), options.build());
                 
                 if( app == null ) {
                     throw new CloudException("No vApp was instantiated for " + fromMachineImageId);
@@ -280,7 +278,7 @@ public class VmSupport implements VirtualMachineSupport {
                 while( app.getStatus().equals(Status.UNRESOLVED) ) {
                     try { Thread.sleep(5000L); }
                     catch( InterruptedException e ) { }
-                    try { app = ctx.getApi().getVAppClient().getVApp(app.getHref()); }
+                    try { app = ctx.getApi().getVAppApi().get(app.getHref()); }
                     catch( Throwable ignore ) { }
                 }
                 app = provider.waitForIdle(ctx, app);
@@ -298,7 +296,7 @@ public class VmSupport implements VirtualMachineSupport {
                     sb.enabled(true);
                     sb.info(name);
                     sb.computerName(n);
-                    ctx.getApi().getVmClient().modifyGuestCustomizationSection(vm.getHref(), sb.build());
+                    ctx.getApi().getVmApi().editGuestCustomizationSection(vm.getHref(), sb.build());
                 }
                 app = provider.waitForIdle(ctx, app);
                 VLAN network = null;
@@ -315,11 +313,11 @@ public class VmSupport implements VirtualMachineSupport {
                 for( Vm vm : children ) {
                     vm = provider.waitForIdle(ctx, vm);
 
-                    NetworkConnectionSection section = ctx.getApi().getVmClient().getNetworkConnectionSection(vm.getHref())
+                    NetworkConnectionSection section = ctx.getApi().getVmApi().getNetworkConnectionSection(vm.getHref())
                             .toBuilder()
                             .networkConnections(Sets.<NetworkConnection>newLinkedHashSet())
                             .build();
-                    provider.waitForTask(ctx.getApi().getVmClient().modifyNetworkConnectionSection(vm.getHref(), section));
+                    provider.waitForTask(ctx.getApi().getVmApi().editNetworkConnectionSection(vm.getHref(), section));
                     vm = provider.waitForIdle(ctx, vm);
                     
                     NetworkConnection connection = NetworkConnection.builder()
@@ -328,32 +326,32 @@ public class VmSupport implements VirtualMachineSupport {
 		                    .network(network.getName())
 		                    .networkConnectionIndex(0)
 		                    .build();
-                    section = ctx.getApi().getVmClient().getNetworkConnectionSection(vm.getHref())
+                    section = ctx.getApi().getVmApi().getNetworkConnectionSection(vm.getHref())
                             .toBuilder()
                             .networkConnection(connection)
                             .build();
-                    provider.waitForTask(ctx.getApi().getVmClient().modifyNetworkConnectionSection(vm.getHref(), section));
+                    provider.waitForTask(ctx.getApi().getVmApi().editNetworkConnectionSection(vm.getHref(), section));
                     vm = provider.waitForIdle(ctx, vm);
 
                     // FIXME
 
-                    RasdItem cpu = ctx.getApi().getVmClient().getVirtualHardwareSectionCpu(vm.getHref())
+                    RasdItem cpu = ctx.getApi().getVmApi().getVirtualHardwareSectionCpu(vm.getHref())
                             .toBuilder()
                             .virtualQuantity(BigInteger.valueOf(product.getCpuCount()))
                             .build();
-                    provider.waitForTask(ctx.getApi().getVmClient().modifyVirtualHardwareSectionCpu(vm.getHref(), cpu));
+                    provider.waitForTask(ctx.getApi().getVmApi().editVirtualHardwareSectionCpu(vm.getHref(), cpu));
                     vm = provider.waitForIdle(ctx, vm);
 
-                    RasdItem ram = ctx.getApi().getVmClient().getVirtualHardwareSectionCpu(vm.getHref())
+                    RasdItem ram = ctx.getApi().getVmApi().getVirtualHardwareSectionCpu(vm.getHref())
                             .toBuilder()
                             .virtualQuantity(BigInteger.valueOf(product.getRamInMb()))
                             .build();
-                    provider.waitForTask(ctx.getApi().getVmClient().modifyVirtualHardwareSectionMemory(vm.getHref(), ram));
+                    provider.waitForTask(ctx.getApi().getVmApi().editVirtualHardwareSectionMemory(vm.getHref(), ram));
                     vm = provider.waitForIdle(ctx, vm);
                 }
                 app = provider.waitForIdle(ctx, app);
                 DeployVAppParams deploy = DeployVAppParams.builder().powerOn().build();
-                ctx.getApi().getVAppClient().deploy(app.getHref(), deploy);
+                ctx.getApi().getVAppApi().deploy(app.getHref(), deploy);
                 
                 Collection<VirtualMachine> vms = toVirtualMachines(ctx, app);
                 
@@ -407,7 +405,7 @@ public class VmSupport implements VirtualMachineSupport {
 
     @Override
     public Iterable<VirtualMachine> listVirtualMachines() throws InternalException, CloudException {
-        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx = provider.getCloudClient();
         
         try {
             try {
@@ -424,7 +422,7 @@ public class VmSupport implements VirtualMachineSupport {
                             return Collections.emptyList();
                         }
                         for( Reference type : Iterables.filter(refs, ReferencePredicates.typeEquals(VCloudDirectorMediaType.VAPP)) ) {
-                            VApp app = ctx.getApi().getVAppClient().getVApp(type.getHref());
+                            VApp app = ctx.getApi().getVAppApi().get(type.getHref());
                                 
                             if( app != null ) {
                                 list.addAll(toVirtualMachines(ctx, app));
@@ -454,11 +452,11 @@ public class VmSupport implements VirtualMachineSupport {
 
     @Override
     public void pause(String vmId) throws InternalException, CloudException {
-        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx = provider.getCloudClient();
         
         try {
             try {
-                provider.waitForTask(ctx.getApi().getVAppClient().powerOff(provider.toHref(ctx, vmId)));
+                provider.waitForTask(ctx.getApi().getVAppApi().powerOff(provider.toHref(ctx, vmId)));
             }
             catch( RuntimeException e ) {
                 logger.error("Error booting " + vmId + ": " + e.getMessage());
@@ -475,11 +473,11 @@ public class VmSupport implements VirtualMachineSupport {
 
     @Override
     public void reboot(String vmId) throws CloudException, InternalException {
-        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx = provider.getCloudClient();
         
         try {
             try {
-                ctx.getApi().getVAppClient().reboot(provider.toHref(ctx, vmId));
+                ctx.getApi().getVAppApi().reboot(provider.toHref(ctx, vmId));
             }
             catch( RuntimeException e ) {
                 logger.error("Error rebooting " + vmId + ": " + e.getMessage());
@@ -501,26 +499,26 @@ public class VmSupport implements VirtualMachineSupport {
 
     @Override
     public void terminate(String vmId) throws InternalException, CloudException {
-        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx = provider.getCloudClient();
         
         try {
             try {
-                Vm vm = ctx.getApi().getVmClient().getVm(provider.toHref(ctx, vmId));
+                Vm vm = ctx.getApi().getVmApi().get(provider.toHref(ctx, vmId));
                 
                 if( vm == null ) {
                     throw new CloudException("No such VM: " + vmId);
                 }
-                VApp parent = ctx.getApi().getVAppClient().getVApp(vm.getVAppParent().getHref());
+                VApp parent = ctx.getApi().getVAppApi().get(vm.getVAppParent().getHref());
                 
                 if( parent.getType().equals(VCloudDirectorMediaType.VAPP) ) {
                     parent = provider.waitForIdle(ctx, parent);
-                    vm = ctx.getApi().getVmClient().getVm(vm.getHref());
+                    vm = ctx.getApi().getVmApi().get(vm.getHref());
                     if( vm.getStatus().equals(Status.POWERED_ON) ) {
                         vm = provider.waitForIdle(ctx, vm);
-                        provider.waitForTask(ctx.getApi().getVAppClient().powerOff(vm.getHref()));
+                        provider.waitForTask(ctx.getApi().getVAppApi().powerOff(vm.getHref()));
                     }
                     vm = provider.waitForIdle(ctx, vm);
-                    parent = ctx.getApi().getVAppClient().getVApp(parent.getHref());
+                    parent = ctx.getApi().getVAppApi().get(parent.getHref());
                     
                     int count = 0;
                     
@@ -534,7 +532,7 @@ public class VmSupport implements VirtualMachineSupport {
                         UndeployVAppParams undeploy = UndeployVAppParams.builder()
                                 .undeployPowerAction(UndeployVAppParams.PowerAction.POWER_OFF)
                                 .build();
-                        try { provider.waitForTask(ctx.getApi().getVAppClient().undeploy(parent.getHref(), undeploy)); }
+                        try { provider.waitForTask(ctx.getApi().getVAppApi().undeploy(parent.getHref(), undeploy)); }
                         catch( Throwable ignore ) { }
                         parent = provider.waitForIdle(ctx, parent);
                         for( Vm child : parent.getChildren().getVms() ) {
@@ -544,7 +542,7 @@ public class VmSupport implements VirtualMachineSupport {
                         
                         while( running ) {
                             try {
-                                provider.waitForTask(ctx.getApi().getVAppClient().deleteVApp(parent.getHref()));
+                                provider.waitForTask(ctx.getApi().getVAppApi().remove(parent.getHref()));
                                 running = false;
                             }
                             catch( IllegalStateException vCloudLies ) {
@@ -557,18 +555,18 @@ public class VmSupport implements VirtualMachineSupport {
                 else {
                     if( vm.getStatus().equals(Status.POWERED_ON) ){
                         vm = provider.waitForIdle(ctx, vm);
-                        provider.waitForTask(ctx.getApi().getVAppClient().powerOff(vm.getHref()));
+                        provider.waitForTask(ctx.getApi().getVAppApi().powerOff(vm.getHref()));
                     }
                     vm = provider.waitForIdle(ctx, vm);
                     if( vm.getStatus().equals(Status.DEPLOYED) ){
                         UndeployVAppParams undeploy = UndeployVAppParams.builder()
                                 .undeployPowerAction(UndeployVAppParams.PowerAction.POWER_OFF)
                                 .build();
-                        provider.waitForTask(ctx.getApi().getVAppClient().undeploy(vm.getHref(), undeploy));
+                        provider.waitForTask(ctx.getApi().getVAppApi().undeploy(vm.getHref(), undeploy));
                         while( vm != null && vm.getStatus().equals(Status.DEPLOYED) ) {
                             try { Thread.sleep(5000L); }
                             catch( InterruptedException e ) { }
-                            try { vm = ctx.getApi().getVmClient().getVm(vm.getHref()); }
+                            try { vm = ctx.getApi().getVmApi().get(vm.getHref()); }
                             catch( Throwable ignore ) { }
                         }                    
                     }
@@ -587,7 +585,7 @@ public class VmSupport implements VirtualMachineSupport {
         }
     }
     
-    private VirtualMachine toVirtualMachine(RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx, VApp app, Vm vcloudVm) throws CloudException, InternalException {
+    private VirtualMachine toVirtualMachine(RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx, VApp app, Vm vcloudVm) throws CloudException, InternalException {
         if( vcloudVm == null ) {
             return null;
         }
@@ -689,7 +687,7 @@ public class VmSupport implements VirtualMachineSupport {
             VAppTemplate template;
             
             try {
-                template = ctx.getApi().getVAppTemplateClient().getVAppTemplate(provider.toHref(ctx, imageId));
+                template = ctx.getApi().getVAppTemplateApi().get(provider.toHref(ctx, imageId));
             }
             catch( RuntimeException e ) {
                 template = null;
@@ -774,7 +772,7 @@ public class VmSupport implements VirtualMachineSupport {
         return vm;
     }
     
-    private Collection<VirtualMachine> toVirtualMachines(RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx, VApp app) throws CloudException, InternalException {
+    private Collection<VirtualMachine> toVirtualMachines(RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx, VApp app) throws CloudException, InternalException {
         ArrayList<VirtualMachine> vms = new ArrayList<VirtualMachine>();
         
         for( Vm vm : app.getChildren().getVms() ) {

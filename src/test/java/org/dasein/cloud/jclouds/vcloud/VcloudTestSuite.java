@@ -22,9 +22,10 @@ import junit.framework.Test;
 
 import org.dasein.cloud.test.ComprehensiveTestSuite;
 import org.dasein.cloud.test.TestConfigurationException;
+import org.dasein.cloud.jclouds.vcloud.director.VCloudDirector;
 
 public class VcloudTestSuite  {
     static public Test suite() throws TestConfigurationException {
-        return new ComprehensiveTestSuite(VcloudDirector.class);
+        return new ComprehensiveTestSuite(VCloudDirector.class);
     }
 }

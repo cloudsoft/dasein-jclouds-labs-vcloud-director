@@ -36,8 +36,8 @@ import org.dasein.cloud.dc.DataCenter;
 import org.dasein.cloud.dc.DataCenterServices;
 import org.dasein.cloud.dc.Region;
 import org.jclouds.rest.RestContext;
-import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminAsyncClient;
-import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminClient;
+import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminAsyncApi;
+import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminApi;
 import org.jclouds.vcloud.director.v1_5.domain.Reference;
 import org.jclouds.vcloud.director.v1_5.domain.Vdc;
 
@@ -57,7 +57,7 @@ public class VCloudDirectorDataCenterServices implements DataCenterServices {
     
     @Override
     public @Nullable DataCenter getDataCenter(@Nonnull String providerDataCenterId) throws InternalException, CloudException {
-        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx = provider.getCloudClient();
 
         try {
             return toDataCenter(ctx, getVdc(providerDataCenterId));
@@ -88,10 +88,10 @@ public class VCloudDirectorDataCenterServices implements DataCenterServices {
     }
 
     public @Nullable Vdc getVdc(@Nonnull String vdcId) throws CloudException {
-        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx = provider.getCloudClient();
 
         try {
-            return ctx.getApi().getVdcClient().getVdc(provider.toHref(ctx, vdcId));
+            return ctx.getApi().getVdcApi().get(provider.toHref(ctx, vdcId));
         }
         finally {
             ctx.close();
@@ -103,7 +103,7 @@ public class VCloudDirectorDataCenterServices implements DataCenterServices {
         if( !providerRegionId.equals(getContext().getRegionId()) ) {
             return Collections.emptyList();
         }
-        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx = provider.getCloudClient();
 
         try {
             Set<Reference> refs = provider.getOrg().getVdcs();
@@ -115,7 +115,7 @@ public class VCloudDirectorDataCenterServices implements DataCenterServices {
                 return Collections.emptyList();
             }
             for( Reference ref : refs ) {
-                Vdc vdc = ctx.getApi().getVdcClient().getVdc(ref.getHref());
+                Vdc vdc = ctx.getApi().getVdcApi().get(ref.getHref());
                 DataCenter dc = toDataCenter(ctx, vdc);
                 
                 if( dc != null ) {
@@ -156,7 +156,7 @@ public class VCloudDirectorDataCenterServices implements DataCenterServices {
         return region;
     }
     
-    private @Nullable DataCenter toDataCenter(@Nonnull RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx, @Nullable Vdc vdc) throws CloudException {
+    private @Nullable DataCenter toDataCenter(@Nonnull RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx, @Nullable Vdc vdc) throws CloudException {
         if( vdc == null ) {
             return null;
         }

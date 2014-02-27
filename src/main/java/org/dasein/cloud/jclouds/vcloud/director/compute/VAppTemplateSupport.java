@@ -51,8 +51,8 @@ import org.jclouds.dmtf.ovf.SectionType;
 import org.jclouds.rest.AuthorizationException;
 import org.jclouds.rest.RestContext;
 import org.jclouds.vcloud.director.v1_5.VCloudDirectorMediaType;
-import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminAsyncClient;
-import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminClient;
+import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminAsyncApi;
+import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminApi;
 import org.jclouds.vcloud.director.v1_5.domain.Catalog;
 import org.jclouds.vcloud.director.v1_5.domain.CatalogItem;
 import org.jclouds.vcloud.director.v1_5.domain.Link;
@@ -92,7 +92,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
         throw new OperationNotSupportedException("Not supported");
     }
 
-    private @Nullable Catalog findCatalog(@Nonnull RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx) throws CloudException {
+    private @Nullable Catalog findCatalog(@Nonnull RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx) throws CloudException {
         Set<Reference> refs = provider.getOrg().getCatalogs();
         
         if( refs == null ) {
@@ -100,7 +100,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
         }
         
         for( Reference ref : refs ) {
-            Catalog c = ctx.getApi().getCatalogClient().getCatalog(ref.getHref()); 
+            Catalog c = ctx.getApi().getCatalogApi().get(ref.getHref()); 
             
             if( !c.isPublished() ) {
                 return c;
@@ -111,11 +111,11 @@ public class VAppTemplateSupport implements MachineImageSupport {
     
     @Override
     public @Nullable MachineImage getMachineImage(@Nonnull String machineImageId) throws CloudException, InternalException {
-        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx = provider.getCloudClient();
         
         try {
             try {
-                VAppTemplate template = ctx.getApi().getVAppTemplateClient().getVAppTemplate(provider.toHref(ctx, machineImageId));
+                VAppTemplate template = ctx.getApi().getVAppTemplateApi().get(provider.toHref(ctx, machineImageId));
                 
                 if( template == null ) {
                     return null;
@@ -123,11 +123,11 @@ public class VAppTemplateSupport implements MachineImageSupport {
                 URI vdcURI = Iterables.find(template.getLinks(),
                         Predicates.and(LinkPredicates.relEquals(Link.Rel.UP),
                                 LinkPredicates.typeEquals(VCloudDirectorMediaType.VDC))).getHref();
-                Vdc vdc = ctx.getApi().getVdcClient().getVdc(vdcURI);
+                Vdc vdc = ctx.getApi().getVdcApi().get(vdcURI);
                 URI orgURI = Iterables.find(vdc.getLinks(),
                         Predicates.and(LinkPredicates.relEquals(Link.Rel.UP),
                                 LinkPredicates.typeEquals(VCloudDirectorMediaType.VDC))).getHref();
-                AdminOrg org = ctx.getApi().getOrgClient().getOrg(orgURI);
+                AdminOrg org = ctx.getApi().getOrgApi().get(orgURI);
                 
                 return toMachineImage(ctx, org, template);
             }
@@ -189,19 +189,19 @@ public class VAppTemplateSupport implements MachineImageSupport {
     }
     
     private @Nonnull MachineImage executeImage(@Nonnull String vmId, @Nonnull String name, @Nonnull String description) throws CloudException, InternalException {
-        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx = provider.getCloudClient();
         
         try {
             try {
                 VirtualMachine vm = provider.getComputeServices().getVirtualMachineSupport().getVirtualMachine(vmId);
-                Vm vcloudVm = ctx.getApi().getVmClient().getVm(provider.toHref(ctx, vmId));
-                VApp parent = ctx.getApi().getVAppClient().getVApp(vcloudVm.getVAppParent().getHref());
+                Vm vcloudVm = ctx.getApi().getVmApi().get(provider.toHref(ctx, vmId));
+                VApp parent = ctx.getApi().getVAppApi().get(vcloudVm.getVAppParent().getHref());
                 
                 if( parent.getStatus().equals(Status.POWERED_ON) ) {
-                    provider.waitForTask(ctx.getApi().getVAppClient().powerOff(parent.getHref()));
+                    provider.waitForTask(ctx.getApi().getVAppApi().powerOff(parent.getHref()));
                 }
                 UndeployVAppParams params = UndeployVAppParams.builder().undeployPowerAction(PowerAction.POWER_OFF).build();
-                provider.waitForTask(ctx.getApi().getVAppClient().undeploy(parent.getHref(), params));
+                provider.waitForTask(ctx.getApi().getVAppApi().undeploy(parent.getHref(), params));
                 HashMap<String,Collection<NetworkConnection.Builder>> oldBuilders = new HashMap<String,Collection<NetworkConnection.Builder>>();
                 for( Vm child : parent.getChildren().getVms() ) {
                     ArrayList<NetworkConnection.Builder> list = new ArrayList<NetworkConnection.Builder>();
@@ -226,7 +226,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
                         connections.add(builder.build());
                     }
                     sectionBuilder.connections(connections);
-                    provider.waitForTask(ctx.getApi().getVmClient().updateNetworkConnectionOfVm(sectionBuilder.build(), child.getHref()));
+                    provider.waitForTask(ctx.getApi().getVmApi().updateNetworkConnectionOfVm(sectionBuilder.build(), child.getHref()));
                 }
                 */
                 /*
@@ -244,7 +244,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
                 try {
                     CaptureVAppParams capture = CaptureVAppParams.builder().description(description).build();
                      
-                    template = ctx.getApi().getVdcClient().captureVApp(parent.getHref(), capture);
+                    template = ctx.getApi().getVdcApi().captureVApp(parent.getHref(), capture);
                     
                     if( logger.isDebugEnabled() ) {
                         logger.debug("Template=" + template);
@@ -258,7 +258,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
                         // note you can also add properties here, if you want
                         Reference ref = Reference.builder().fromEntity(template).build();
                         CatalogItem item = CatalogItem.builder().name(name).description(description).entity(ref).build();
-                        ctx.getApi().getCatalogClient().addCatalogItem(catalog.getHref(), item);
+                        ctx.getApi().getCatalogApi().addItem(catalog.getHref(), item);
                         if( logger.isInfoEnabled() ) {
                             logger.info("Template added to catalog");
                         }
@@ -291,13 +291,13 @@ public class VAppTemplateSupport implements MachineImageSupport {
                             if( logger.isInfoEnabled() ) {
                                 logger.info("Resetting network connection for " + child);
                             }
-                            provider.waitForTask(ctx.getApi().getVmClient().modifyNetworkConnectionSection(child.getHref(), section));                    
+                            provider.waitForTask(ctx.getApi().getVmApi().editNetworkConnectionSection(child.getHref(), section));
                         }
                         parent = provider.waitForIdle(ctx, parent);
                         try {
                             logger.info("Powering VM " + parent + " on");
                             DeployVAppParams deploy = DeployVAppParams.builder().powerOn().build();
-                            provider.waitForTask(ctx.getApi().getVAppClient().deploy(parent.getHref(), deploy));
+                            provider.waitForTask(ctx.getApi().getVAppApi().deploy(parent.getHref(), deploy));
                         }
                         catch( Throwable t ) {
                             logger.warn("Failed to power on VM " + parent);
@@ -313,7 +313,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
                 if( logger.isInfoEnabled() ) {
                     logger.info("Populating dasein image for new template: " + template);
                 }
-                return toMachineImage(ctx, provider.getOrg(vm.getProviderOwnerId()), ctx.getApi().getVAppTemplateClient().getVAppTemplate(template.getHref()));
+                return toMachineImage(ctx, provider.getOrg(vm.getProviderOwnerId()), ctx.getApi().getVAppTemplateApi().get(template.getHref()));
             }
             catch( RuntimeException e ) {
                 logger.error("Error creating template from " + vmId + ": " + e.getMessage());
@@ -360,7 +360,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
     }
     
     private Iterable<MachineImage> listMachineImages(AdminOrg org, boolean published) throws CloudException, InternalException {
-        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx = provider.getCloudClient();
         
         try {
             try {
@@ -372,15 +372,15 @@ public class VAppTemplateSupport implements MachineImageSupport {
                 ArrayList<MachineImage> images = new ArrayList<MachineImage>();
 
                 for( Reference type : refs ) {
-                    Catalog c = ctx.getApi().getCatalogClient().getCatalog(type.getHref());
+                    Catalog c = ctx.getApi().getCatalogApi().get(type.getHref());
                     
                     if( c != null && (c.isPublished() == published) ) {
                         for( Reference itemType : c.getCatalogItems() ) {
-                            CatalogItem item = ctx.getApi().getCatalogClient().getCatalogItem(itemType.getHref());
+                            CatalogItem item = ctx.getApi().getCatalogApi().getItem(itemType.getHref());
                             
                             if( item.getEntity().getType().equals(VCloudDirectorMediaType.VAPP_TEMPLATE) ) {
                                 try {
-                                    VAppTemplate template = ctx.getApi().getVAppTemplateClient().getVAppTemplate(item.getEntity().getHref());
+                                    VAppTemplate template = ctx.getApi().getVAppTemplateApi().get(item.getEntity().getHref());
                                     MachineImage image = toMachineImage(ctx, org, template);
                                     
                                     if( image != null ) {
@@ -440,17 +440,17 @@ public class VAppTemplateSupport implements MachineImageSupport {
 
     @Override
     public void remove(String machineImageId) throws CloudException, InternalException {
-        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx = provider.getCloudClient();
         
         try {
             try {
-                VAppTemplate template = ctx.getApi().getVAppTemplateClient().getVAppTemplate(provider.toHref(ctx, machineImageId));
+                VAppTemplate template = ctx.getApi().getVAppTemplateApi().get(provider.toHref(ctx, machineImageId));
                 boolean busy = true;
                 
                 while( busy ) {
                     try { Thread.sleep(1500L); }
                     catch( InterruptedException e ) { }
-                    template = ctx.getApi().getVAppTemplateClient().getVAppTemplate(provider.toHref(ctx, machineImageId));
+                    template = ctx.getApi().getVAppTemplateApi().get(provider.toHref(ctx, machineImageId));
                     busy = false;
                     for( Task task : template.getTasks() ) {
                         if( task.getStatus().equals(Task.Status.QUEUED) || task.getStatus().equals(Task.Status.RUNNING) ) {
@@ -458,7 +458,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
                         }
                     }
                 }
-                provider.waitForTask(ctx.getApi().getVAppTemplateClient().deleteVappTemplate(template.getHref()));
+                provider.waitForTask(ctx.getApi().getVAppTemplateApi().remove(template.getHref()));
             }
             catch( RuntimeException e ) {
                 logger.error("Error deleting " + machineImageId + ": " + e.getMessage());
@@ -535,7 +535,7 @@ public class VAppTemplateSupport implements MachineImageSupport {
         throw new OperationNotSupportedException("Not supported");
     }
 
-    private MachineImage toMachineImage(RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx, Org org, VAppTemplate template) {
+    private MachineImage toMachineImage(RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx, Org org, VAppTemplate template) {
         if( template == null) {
             return null;
         }
