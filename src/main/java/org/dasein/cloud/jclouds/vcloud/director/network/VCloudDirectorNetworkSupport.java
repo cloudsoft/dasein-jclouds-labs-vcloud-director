@@ -39,8 +39,9 @@ import org.dasein.cloud.network.VLANSupport;
 import org.jclouds.rest.AuthorizationException;
 import org.jclouds.rest.RestContext;
 import org.jclouds.vcloud.director.v1_5.VCloudDirectorMediaType;
-import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminAsyncClient;
-import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminClient;
+import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminAsyncApi;
+import org.jclouds.vcloud.director.v1_5.admin.VCloudDirectorAdminApi;
+import org.jclouds.vcloud.director.v1_5.domain.Link;
 import org.jclouds.vcloud.director.v1_5.domain.Reference;
 import org.jclouds.vcloud.director.v1_5.domain.Vm;
 import org.jclouds.vcloud.director.v1_5.domain.network.IpScope;
@@ -96,20 +97,20 @@ public class VCloudDirectorNetworkSupport implements VLANSupport {
 
     @Override
     public Iterable<NetworkInterface> listNetworkInterfaces(String forVmId) throws CloudException, InternalException {
-        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx = provider.getCloudClient();
         
         try {
             try {
                 Set<Reference> refs = provider.getOrg().getNetworks();
                 List<NetworkInterface> list = Lists.newArrayList();
                 List<Network> networks = Lists.newArrayList();
-                Vm vm = ctx.getApi().getVmClient().getVm(provider.toHref(ctx, forVmId));
+                Vm vm = ctx.getApi().getVmApi().get(provider.toHref(ctx, forVmId));
                 NetworkConnection def = null;
 
                 if( refs != null ) {
                     for( Reference t : refs ) {
                         if( t.getType().equals(VCloudDirectorMediaType.NETWORK) ) {
-                            Network network = ctx.getApi().getNetworkClient().getNetwork(t.getHref());
+                            Network network = ctx.getApi().getNetworkApi().get(t.getHref());
                             
                             if( network != null ) {
                                 networks.add(network);
@@ -161,7 +162,7 @@ public class VCloudDirectorNetworkSupport implements VLANSupport {
     
     @Override
     public Iterable<VLAN> listVlans() throws CloudException, InternalException {
-        RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx = provider.getCloudClient();
+        RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx = provider.getCloudClient();
         
         try {
             try {
@@ -174,7 +175,7 @@ public class VCloudDirectorNetworkSupport implements VLANSupport {
                 }
                 for( Reference type : refs ) {
                     if( type.getType().equals(VCloudDirectorMediaType.NETWORK) ) {
-                        Network network = ctx.getApi().getNetworkClient().getNetwork(type.getHref());
+                        Network network = ctx.getApi().getNetworkApi().get(type.getHref());
                         
                         VLAN vlan = toVlan(ctx, network);
                         
@@ -253,11 +254,21 @@ public class VCloudDirectorNetworkSupport implements VLANSupport {
         return network.toString();
     }
     
-    private VLAN toVlan(RestContext<VCloudDirectorAdminClient, VCloudDirectorAdminAsyncClient> ctx, Network network) throws CloudException {
+    private VLAN toVlan(RestContext<VCloudDirectorAdminApi, VCloudDirectorAdminAsyncApi> ctx, Network network) throws CloudException {
         if( network == null ) {
             return null;
         }
-        AdminOrg org = provider.getOrg(network.getOrg().getHref());
+
+        Link orgLink = null;
+        for (Link link : network.getLinks()) {
+            if (link.getName() == "up") {
+                orgLink = link;
+            }
+        }
+        if (orgLink == null) {
+            throw new IllegalStateException("Expected link to org in response");
+        }
+        AdminOrg org = provider.getOrg(orgLink.getHref());
         VLAN vlan = new VLAN();
 
         vlan.setProviderOwnerId(org.getName());

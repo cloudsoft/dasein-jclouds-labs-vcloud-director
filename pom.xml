@@ -58,14 +58,7 @@
     <artifactId>oss-parent</artifactId>
     <version>5</version>
   </parent>
-      
-  <repositories>
-    <repository>
-        <id>jclouds</id>
-        <url>http://jclouds.googlecode.com/svn/repo</url>
-    </repository>    
-  </repositories>
-        
+
   <dependencies>
     <dependency>
         <groupId>org.dasein</groupId>
@@ -104,12 +97,12 @@
     <dependency>
         <groupId>org.jclouds.labs</groupId>
         <artifactId>vcloud-director</artifactId>
-        <version>1.5.0-SNAPSHOT</version>
+        <version>1.5.10</version>
     </dependency>
     <dependency>
         <groupId>org.jclouds.driver</groupId>
         <artifactId>jclouds-log4j</artifactId>
-        <version>1.5.0-SNAPSHOT</version>
+        <version>1.5.10</version>
     </dependency>          
   </dependencies>
   
